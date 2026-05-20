@@ -11,6 +11,7 @@ _HTCPCP_METHODS = {b"BREW", b"WHEN", b"PROPFIND"}
 
 try:
     import h11._readers
+
     h11._readers.KNOWN_METHODS = (  # type: ignore[attr-defined]
         h11._readers.KNOWN_METHODS | _HTCPCP_METHODS
     )
@@ -71,26 +72,32 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
+
 class HTCPCPMiddleware(BaseHTTPMiddleware):
     """
     Enforce HTCPCP protocol headers on all responses.
     Also intercepts rogue BREW calls on non-coffee routes.
     """
+
     async def dispatch(self, request: Request, call_next):
         # Detect a BREW on a non-coffee route
         # A developer confused about which universe they're in deserves a 418
         if request.method == "BREW" and not request.url.path.startswith("/coffee"):
-            log.warning("htcpcp.wrong_universe",
+            log.warning(
+                "htcpcp.wrong_universe",
                 method="BREW",
                 path=request.url.path,
                 status_code=418,
             )
-            return JSONResponse(status_code=418, content={
-                "error": "Wrong universe",
-                "message": f"BREW is not valid on {request.url.path}",
-                "hint": "BREW is only valid on coffee:// URIs — try /coffee/pot-1",
-                "rfc": "RFC 2324 §2.1",
-            })
+            return JSONResponse(
+                status_code=418,
+                content={
+                    "error": "Wrong universe",
+                    "message": f"BREW is not valid on {request.url.path}",
+                    "hint": "BREW is only valid on coffee:// URIs — try /coffee/pot-1",
+                    "rfc": "RFC 2324 §2.1",
+                },
+            )
 
         response = await call_next(request)
 
@@ -105,18 +112,23 @@ class HTCPCPMiddleware(BaseHTTPMiddleware):
 app.add_middleware(HTCPCPMiddleware)
 app.include_router(router)
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     from routes import dashboard as get_dashboard_html
+
     return await get_dashboard_html()
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
+
 @app.on_event("startup")
 async def startup():
     from models import POT_REGISTRY
-    log.info("htcpcp.startup",
+
+    log.info(
+        "htcpcp.startup",
         protocol="HTCPCP/1.0",
         rfc=["RFC-2324", "RFC-7168"],
         registered_pots=list(POT_REGISTRY.keys()),
@@ -130,7 +142,7 @@ async def startup():
         pot_id = uri.split("://")[-1]
         controller = HardwareController(pot, use_mock=use_mock)
         CONTROLLERS[pot_id] = controller
-        
+
         # Start the background sensor loop
         asyncio.create_task(controller.update_loop())
         log.info("hardware.controller_started", pot_id=pot_id, mock=use_mock)

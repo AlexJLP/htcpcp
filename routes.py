@@ -18,20 +18,25 @@ from models import (
     get_pot,
 )
 from hardware import get_controller
+
 router = APIRouter()
 log = structlog.get_logger()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def resolve_pot(pot_id: str) -> CoffeePot:
     pot = get_pot(pot_id)
     if not pot:
-        raise HTTPException(status_code=404, detail={
-            "error": "Not Found",
-            "message": f"No pot registered at coffee://{pot_id} or tea://{pot_id}",
-            "registered_pots": ["pot-1", "pot-2", "kettle-1", "kettle-2"],
-        })
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "Not Found",
+                "message": f"No pot registered at coffee://{pot_id} or tea://{pot_id}",
+                "registered_pots": ["pot-1", "pot-2", "kettle-1", "kettle-2"],
+            },
+        )
     return pot
 
 
@@ -60,11 +65,14 @@ def validate_additions(additions: dict) -> None:
     # RFC 2324 §2.1.1 — no decaf. Ever.
     if "decaf" in additions:
         log.warning("htcpcp.decaf_refused", additions=additions)
-        raise HTTPException(status_code=406, detail={
-            "error": "Not Acceptable",
-            "message": "Decaffeinated coffee? What's the point?",
-            "rfc": "RFC 2324 §2.1.1",
-        })
+        raise HTTPException(
+            status_code=406,
+            detail={
+                "error": "Not Acceptable",
+                "message": "Decaffeinated coffee? What's the point?",
+                "rfc": "RFC 2324 §2.1.1",
+            },
+        )
 
     unsupported = [
         f"{k}={v}"
@@ -72,14 +80,18 @@ def validate_additions(additions: dict) -> None:
         if k in SUPPORTED_ADDITIONS and v not in SUPPORTED_ADDITIONS[k]
     ]
     if unsupported:
-        raise HTTPException(status_code=406, detail={
-            "error": "Not Acceptable",
-            "unsupported_additions": unsupported,
-            "hint": "Use PROPFIND to list valid additions.",
-        })
+        raise HTTPException(
+            status_code=406,
+            detail={
+                "error": "Not Acceptable",
+                "unsupported_additions": unsupported,
+                "hint": "Use PROPFIND to list valid additions.",
+            },
+        )
 
 
 # ── BREW ──────────────────────────────────────────────────────────────────────
+
 
 @router.api_route("/coffee/{pot_id}", methods=["BREW", "POST"])
 async def brew(pot_id: str, request: Request):
@@ -94,67 +106,89 @@ async def brew(pot_id: str, request: Request):
         503 — Pot is empty
     """
     recipe = request.query_params.get("recipe", "default")
-    log.info("htcpcp.brew_request_params", query_params=dict(request.query_params), resolved_recipe=recipe)
+    log.info(
+        "htcpcp.brew_request_params",
+        query_params=dict(request.query_params),
+        resolved_recipe=recipe,
+    )
     pot = resolve_pot(pot_id)
 
     # RFC 2324 §2.3.2 — Any attempt to brew coffee with a teapot
     # MUST return 418. Non-negotiable.
     if pot.pot_type == PotType.TEAPOT:
         log.warning("htcpcp.teapot_detected", pot_id=pot_id, status_code=418)
-        return JSONResponse(status_code=418, content={
-            "status": 418,
-            "error": "I'm a teapot",
-            "body": "The requested entity body is short and stout.",
-            "hint": "Tip me over and pour me out.",
-            "pot_id": pot_id,
-            "pot_type": "teapot",
-            "rfc": "RFC 2324 §2.3.2",
-            "suggestion": "Try coffee://pot-1 instead.",
-        })
+        return JSONResponse(
+            status_code=418,
+            content={
+                "status": 418,
+                "error": "I'm a teapot",
+                "body": "The requested entity body is short and stout.",
+                "hint": "Tip me over and pour me out.",
+                "pot_id": pot_id,
+                "pot_type": "teapot",
+                "rfc": "RFC 2324 §2.3.2",
+                "suggestion": "Try coffee://pot-1 instead.",
+            },
+        )
 
     # Validate that recipe exists
     controller = get_controller(pot_id)
     if controller and recipe not in controller.recipes:
         log.warning("htcpcp.invalid_recipe", pot_id=pot_id, requested_recipe=recipe)
-        raise HTTPException(status_code=400, detail={
-            "error": "Bad Request",
-            "message": f"The recipe '{recipe}' does not exist in the configuration.",
-            "available_recipes": list(controller.recipes.keys()),
-        })
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Bad Request",
+                "message": f"The recipe '{recipe}' does not exist in the configuration.",
+                "available_recipes": list(controller.recipes.keys()),
+            },
+        )
 
     # Validate that pot is not busy
     if pot.status not in [PotStatus.IDLE, PotStatus.READY, PotStatus.NO_MUG]:
         log.warning("htcpcp.pot_busy", pot_id=pot_id, current_status=pot.status)
-        raise HTTPException(status_code=409, detail={
-            "error": "Conflict",
-            "message": "The pot is currently busy with another brewing cycle.",
-            "current_status": pot.status,
-        })
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "Conflict",
+                "message": "The pot is currently busy with another brewing cycle.",
+                "current_status": pot.status,
+            },
+        )
 
     # Optimistic concurrency CAS check
     expected_version = request.headers.get("x-brew-version")
     if expected_version is not None:
         try:
             if int(expected_version) != pot.brew_version:
-                raise HTTPException(status_code=409, detail={
-                    "error": "Conflict",
-                    "message": "Pot was modified by a concurrent BREW.",
-                    "current_version": pot.brew_version,
-                    "hint": "Retry with current brew_version.",
-                })
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "Conflict",
+                        "message": "Pot was modified by a concurrent BREW.",
+                        "current_version": pot.brew_version,
+                        "hint": "Retry with current brew_version.",
+                    },
+                )
         except ValueError:
-            raise HTTPException(status_code=400, detail={
-                "error": "Bad Request",
-                "message": "Invalid X-Brew-Version header value. Must be an integer.",
-            })
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Bad Request",
+                    "message": "Invalid X-Brew-Version header value. Must be an integer.",
+                },
+            )
 
     if not pot.mug_present:
         log.warning("htcpcp.no_mug", pot_id=pot_id)
-        raise HTTPException(status_code=503, detail={
-            "error": "Service Unavailable",
-            "message": "No mug detected. Please place a mug under the spout.",
-            "rfc": "RFC 2324 §2.3.2 (extended)",
-        })
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Service Unavailable",
+                "message": "No mug detected. Please place a mug under the spout.",
+                "rfc": "RFC 2324 §2.3.2 (extended)",
+            },
+        )
 
     additions_header = request.headers.get("accept-additions")
     additions = parse_accept_additions(additions_header)
@@ -169,7 +203,8 @@ async def brew(pot_id: str, request: Request):
         log.info("htcpcp.hardware_triggered", pot_id=pot_id, recipe=recipe)
         asyncio.create_task(controller.run_brew_sequence(recipe))
 
-    log.info("htcpcp.brew",
+    log.info(
+        "htcpcp.brew",
         pot_id=pot_id,
         brew_id=record.id,
         additions=additions,
@@ -178,18 +213,22 @@ async def brew(pot_id: str, request: Request):
         protocol="HTCPCP/1.0",
     )
 
-    return JSONResponse(status_code=200, content={
-        "brew_id": record.id,
-        "message": "Coffee is brewing.",
-        "pot": pot_id,
-        "accept-additions": additions,
-        "milk_pouring": has_milk,
-        "when_required": has_milk,
-        "protocol": "HTCPCP/1.0",
-    })
+    return JSONResponse(
+        status_code=200,
+        content={
+            "brew_id": record.id,
+            "message": "Coffee is brewing.",
+            "pot": pot_id,
+            "accept-additions": additions,
+            "milk_pouring": has_milk,
+            "when_required": has_milk,
+            "protocol": "HTCPCP/1.0",
+        },
+    )
 
 
 # ── GET ───────────────────────────────────────────────────────────────────────
+
 
 @router.get("/coffee/{pot_id}/status")
 def get_status(pot_id: str):
@@ -215,6 +254,7 @@ def get_history(pot_id: str):
 
 # ── PROPFIND ──────────────────────────────────────────────────────────────────
 
+
 @router.api_route("/coffee/{pot_id}/additions", methods=["PROPFIND"])
 def propfind(pot_id: str):
     """
@@ -232,6 +272,7 @@ def propfind(pot_id: str):
 
 # ── WHEN ──────────────────────────────────────────────────────────────────────
 
+
 @router.api_route("/coffee/{pot_id}/stop-milk", methods=["WHEN"])
 def when(pot_id: str):
     """
@@ -244,29 +285,36 @@ def when(pot_id: str):
 
     if pot.status != PotStatus.POURING_MILK:
         log.info("htcpcp.when_noop", pot_id=pot_id, current_status=pot.status)
-        return JSONResponse(status_code=200, content={
-            "message": "WHEN acknowledged.",
-            "note": "No milk was being poured, but your enthusiasm is appreciated.",
-            "current_status": pot.status,
-            "rfc": "RFC 2324 §2.1.3",
-        })
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "WHEN acknowledged.",
+                "note": "No milk was being poured, but your enthusiasm is appreciated.",
+                "current_status": pot.status,
+                "rfc": "RFC 2324 §2.1.3",
+            },
+        )
 
     pot.status = PotStatus.DISPENSING_GROUNDS
 
     log.info("htcpcp.when_milk_stopped", pot_id=pot_id, status_code=200)
 
-    return JSONResponse(status_code=200, content={
-        "message": "Milk pouring stopped.",
-        "detail": "The server has acknowledged WHEN and stopped the milk stream.",
-        "current_status": pot.status,
-        "protocol": "HTCPCP/1.0",
-        "rfc": "RFC 2324 §2.1.3",
-    })
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Milk pouring stopped.",
+            "detail": "The server has acknowledged WHEN and stopped the milk stream.",
+            "current_status": pot.status,
+            "protocol": "HTCPCP/1.0",
+            "rfc": "RFC 2324 §2.1.3",
+        },
+    )
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 # ── WEB UI ────────────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard():
@@ -277,27 +325,29 @@ async def dashboard():
     except FileNotFoundError:
         return "Dashboard file not found."
 
+
 @router.get("/api/recipes")
 async def get_api_recipes():
     """Returns all loaded recipes and calibration for the viewer."""
     controller = get_controller("pot-1")
     if not controller:
         return {"error": "Controller not found"}
-    return {
-        "recipes": controller.recipes,
-        "calibration": controller.calibration
-    }
+    return {"recipes": controller.recipes, "calibration": controller.calibration}
+
 
 @router.get("/api/pots")
 async def get_api_pots():
     """List available pots."""
     from models import POT_REGISTRY
+
     return [{"id": p.id, "name": uri} for uri, p in POT_REGISTRY.items()]
+
 
 @router.get("/api/status")
 async def get_api_status(pot: str = "pot-1"):
     """Real-time status for the web UI."""
     from models import get_pot
+
     p = get_pot(pot)
     if not p:
         return {"error": "Pot not found"}
@@ -311,6 +361,7 @@ async def get_api_status(pot: str = "pot-1"):
         "progress": p.progress,
     }
 
+
 @router.get("/{filename}.jpg")
 async def get_jpg(filename: str):
     """Serve static JPG images."""
@@ -319,6 +370,7 @@ async def get_jpg(filename: str):
         return FileResponse(path)
     return JSONResponse(status_code=404, content={"error": "Not Found"})
 
+
 @router.get("/{filename}.js")
 async def get_js(filename: str):
     """Serve static JS files."""
@@ -326,6 +378,7 @@ async def get_js(filename: str):
     if os.path.exists(path):
         return FileResponse(path)
     return JSONResponse(status_code=404, content={"error": "Not Found"})
+
 
 @router.get("/{filename}.css")
 async def get_css(filename: str):

@@ -51,7 +51,7 @@ class CoffeePot:
     status: PotStatus = field(default=PotStatus.IDLE)
     brew_history: list[BrewRecord] = field(default_factory=list)
     brew_version: int = field(default=0)
-    
+
     # Physical state
     temperature: float = field(default=20.0)
     mug_present: bool = field(default=True)
@@ -114,7 +114,4 @@ POT_REGISTRY: dict[str, CoffeePot] = {
 
 def get_pot(pot_id: str) -> CoffeePot | None:
     """Lookup a pot by ID, checking both coffee:// and tea:// URIs."""
-    return (
-        POT_REGISTRY.get(f"coffee://{pot_id}")
-        or POT_REGISTRY.get(f"tea://{pot_id}")
-    )
+    return POT_REGISTRY.get(f"coffee://{pot_id}") or POT_REGISTRY.get(f"tea://{pot_id}")

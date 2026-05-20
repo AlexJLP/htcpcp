@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light" data-bs-core="elegant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Covfefe Web</title>
+    <link href="https://cdn.jsdelivr.net/npm/halfmoon@2.0.2/css/halfmoon.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/halfmoon@2.0.2/css/cores/halfmoon.elegant.min.css" rel="stylesheet" />
+    <style>
+        .timeline-container {
+            height: 60px;
+            background: var(--bs-secondary-bg);
+            position: relative;
+            overflow: hidden;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid var(--bs-border-color);
+        }
+
+        .bar-pour {
+            background: var(--bs-primary);
+            height: 100%;
+            position: absolute;
+            bottom: 0;
+            border-right: 1px solid rgba(0, 0, 0, 0.2);
+            opacity: 0.8;
+        }
+
+        .bar-pause {
+            background: var(--bs-secondary);
+            height: 30%;
+            position: absolute;
+            bottom: 0;
+        }
+
+        #progress-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background-color: var(--bs-danger);
+            z-index: 20;
+            transition: left 0.5s linear;
+            display: none;
+            box-shadow: 0 0 5px var(--bs-danger);
+        }
+
+        .phase-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--bs-border-color);
+            display: flex;
+            font-size: 0.9rem;
+        }
+
+        .phase-item.active {
+            background-color: var(--bs-primary);
+            color: white;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+
+        .system-log {
+            height: 150px;
+            background: var(--bs-tertiary-bg);
+            padding: 10px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            border: 1px solid var(--bs-border-color);
+        }
+
+        .lcd-display {
+            background: var(--bs-tertiary-bg);
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            border: 1px solid var(--bs-border-color);
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: var(--bs-secondary-color);
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg bg-body-tertiary shadow-sm mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">Covfefe Web</span>
+
+            <div class="d-flex align-items-center ms-auto me-3">
+                <label for="pot-select"
+                    class="form-label mb-0 me-2 d-none d-sm-block text-muted small text-uppercase">Target
+                    Device:</label>
+                <select class="form-select form-select-sm w-auto" id="pot-select" onchange="changePot()">
+                    <option value="pot-1">Loading...</option>
+                </select>
+            </div>
+
+            <button class="btn btn-outline-primary btn-sm rounded-circle fw-bold"
+                style="width: 32px; height: 32px; padding: 0;" type="button" data-bs-toggle="modal"
+                data-bs-target="#aboutModal" title="What is this?">
+                ?
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container-fluid px-4 pb-4">
+        <div class="row g-4">
+
+            <div class="col-12 col-lg-5">
+                <div class="card mb-4 shadow-sm border-primary">
+                    <div class="card-header text-bg-primary">Infusion Control</div>
+                    <div class="card-body">
+                        <label class="form-label" for="recipe-select">Brew Profile</label>
+                        <select class="form-select mb-3" id="recipe-select" onchange="renderRecipe()">
+                            <option value="" disabled selected>Loading...</option>
+                        </select>
+                        <button class="btn btn-primary w-100 fw-bold" id="brew-btn" onclick="startBrew()" disabled>
+                            INITIATE BREW
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card mb-4 shadow-sm">
+                    <div class="card-header">System Status</div>
+                    <div class="card-body p-0">
+                        <div class="row text-center m-0">
+                            <div class="col-4 border-end p-3" id="status-card">
+                                <div class="stat-label">Operation</div>
+                                <div class="stat-value" id="status-val">STANDBY</div>
+                            </div>
+                            <div class="col-4 border-end p-3">
+                                <div class="stat-label">Temp</div>
+                                <div class="stat-value"><span id="temp-val">--</span>°C</div>
+                            </div>
+                            <div class="col-4 p-3" id="mug-card">
+                                <div class="stat-label">Mug</div>
+                                <div class="stat-value" id="mug-val">NONE</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header">System Log</div>
+                    <div class="card-body p-2">
+                        <div id="log" class="system-log">
+                            [SYSTEM] Booting Covfefe ...<br>
+                            [SYSTEM] Ready.<br>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-7">
+                <div class="card mb-4 shadow-sm">
+                    <div class="card-header">Active Profile Data</div>
+                    <div class="card-body">
+                        <div id="no-recipe-hint" class="text-center p-4 text-muted">
+                            NO PROFILE SELECTED
+                        </div>
+                        <div id="recipe-viewer" class="d-none">
+                            <div class="d-flex justify-content-between bg-body-tertiary p-2 rounded border">
+                                <div><strong>Target Temp:</strong> <span id="target-temp">--</span>°C</div>
+                                <div><strong>Total Vol:</strong> <span id="total-vol">0</span>ml</div>
+                            </div>
+
+                            <div class="timeline-container" id="timeline-container">
+                                <div id="progress-line"></div>
+                                <div id="timeline"></div>
+                            </div>
+
+                            <div id="phase-list" style="height: 250px; overflow-y: auto;" class="border rounded">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Dashboard Application Logic
+        let config = { recipes: {}, calibration: { ml_per_second: 5 } };
+        let currentPot = "pot-1";
+
+        function addLog(msg) {
+            const log = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML += `[${time}] ${msg}<br>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function loadPots() {
+            try {
+                const response = await fetch('/api/pots');
+                const pots = await response.json();
+                const select = document.getElementById('pot-select');
+                select.innerHTML = pots.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                if (pots.length > 0) {
+                    currentPot = select.value;
+                }
+            } catch (e) {
+                addLog("ERROR: Failed to load target devices.");
+            }
+        }
+
+        function changePot() {
+            currentPot = document.getElementById('pot-select').value;
+            addLog(`Switched target device to ${currentPot}`);
+            updateStatus();
+        }
+
+        async function loadRecipes() {
+            try {
+                const response = await fetch('/api/recipes');
+                config = await response.json();
+                const select = document.getElementById('recipe-select');
+
+                select.innerHTML = '<option value="" disabled selected>-- Select a Profile --</option>' + Object.keys(config.recipes).map(id => {
+                    const r = config.recipes[id];
+                    const totalMl = r.phases.reduce((sum, p) => sum + (p.water_ml || 0), 0);
+                    return `<option value="${id}">${r.name || id} (${totalMl}ml)</option>`;
+                }).join('');
+            } catch (e) {
+                addLog("ERROR: Failed to load profiles.");
+            }
+        }
+
+        function renderRecipe() {
+            const id = document.getElementById('recipe-select').value;
+            const recipe = config.recipes[id];
+            const viewer = document.getElementById('recipe-viewer');
+            const hint = document.getElementById('no-recipe-hint');
+
+            if (!recipe) {
+                viewer.classList.add('d-none');
+                hint.classList.remove('d-none');
+                return;
+            }
+
+            viewer.classList.remove('d-none');
+            hint.classList.add('d-none');
+
+            document.getElementById('target-temp').innerText = recipe.target_temp || "--";
+
+            const timeline = document.getElementById('timeline');
+            const list = document.getElementById('phase-list');
+
+            let totalVol = 0;
+            let totalPause = 0;
+            let totalTime = 0;
+            const mlPerSec = config.calibration.ml_per_second || 5;
+
+            const steps = recipe.phases.map(p => {
+                const pourDuration = (p.water_ml || 0) / mlPerSec;
+                const pauseDuration = (p.pause_seconds || 0);
+                totalVol += (p.water_ml || 0);
+                totalPause += pauseDuration;
+                const step = { ...p, pourDuration, pauseDuration };
+                totalTime += pourDuration + pauseDuration;
+                return step;
+            });
+
+            document.getElementById('total-vol').innerText = totalVol;
+
+            let currentLeft = 0;
+            const maxWater = Math.max(...steps.map(s => s.water_ml || 0), 1);
+
+            timeline.innerHTML = '';
+            steps.forEach(s => {
+                const pourWidth = (s.pourDuration / totalTime) * 100;
+                const pauseWidth = (s.pauseDuration / totalTime) * 100;
+                const height = ((s.water_ml || 0) / maxWater) * 100;
+
+                if (pourWidth > 0) {
+                    const div = document.createElement('div');
+                    div.className = 'bar-pour';
+                    div.style.left = currentLeft + '%';
+                    div.style.width = pourWidth + '%';
+                    div.style.height = height + '%';
+                    timeline.appendChild(div);
+                    currentLeft += pourWidth;
+                }
+                if (pauseWidth > 0) {
+                    const div = document.createElement('div');
+                    div.className = 'bar-pause';
+                    div.style.left = currentLeft + '%';
+                    div.style.width = pauseWidth + '%';
+                    timeline.appendChild(div);
+                    currentLeft += pauseWidth;
+                }
+            });
+
+            list.innerHTML = recipe.phases.map((p, i) => {
+                let html = `
+                <div class="phase-item" data-phase-index="${i}">
+                    <div class="flex-grow-1 text-uppercase">${i + 1}. ${p.action}</div>
+                    <div class="text-end fw-bold">
+                        ${p.water_ml ? p.water_ml + 'ml' : '0ml'}
+                    </div>
+                </div>`;
+                if (p.pause_seconds) {
+                    html += `
+                <div class="phase-item" data-phase-index="${i}">
+                    <div class="flex-grow-1 text-uppercase text-muted">&nbsp;&nbsp;&nbsp;↳ PAUSE</div>
+                    <div class="text-end text-muted">
+                        ${p.pause_seconds}s
+                    </div>
+                </div>`;
+                }
+                return html;
+            }).join('');
+
+            addLog(`Loaded profile: ${recipe.name}`);
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch(`/api/status?pot=${currentPot}`);
+                const data = await response.json();
+
+                if (response.status === 404) {
+                    document.getElementById('status-val').innerText = "NOT FOUND";
+                    return;
+                }
+                const statusVal = document.getElementById('status-val');
+                const statusCard = document.getElementById('status-card');
+                const mugVal = document.getElementById('mug-val');
+                const mugCard = document.getElementById('mug-card');
+
+                statusVal.innerText = data.status;
+                document.getElementById('temp-val').innerText = Math.round(data.temperature * 10) / 10;
+                mugVal.innerText = data.mug_present ? "READY" : "NONE";
+
+                // Status card styling
+                statusCard.classList.remove('text-bg-success', 'text-bg-warning');
+                if (data.status !== 'IDLE' && data.status !== 'READY') {
+                    statusCard.classList.add('text-bg-success');
+                }
+
+                if (!data.mug_present) {
+                    mugCard.classList.add('text-bg-warning');
+                    statusCard.classList.add('text-bg-warning');
+                } else {
+                    mugCard.classList.remove('text-bg-warning');
+                }
+
+                // Highlight active phase
+                document.querySelectorAll('.phase-item').forEach((el) => {
+                    if (el.dataset.phaseIndex == data.current_phase) {
+                        el.classList.add('active');
+                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                    else {
+                        el.classList.remove('active');
+                    }
+                });
+
+                // Update progress line
+                const progressLine = document.getElementById('progress-line');
+                const isBrewing = data.progress > 0 && data.progress < 100 && (data.status === 'POURING' || data.status === 'BLOOMING' || data.status === 'INFUSING' || data.status === 'DISPENSING GROUNDS' || data.status === 'HEATING WATER');
+                if (isBrewing) {
+                    progressLine.style.display = 'block';
+                    progressLine.style.left = data.progress + '%';
+                } else {
+                    progressLine.style.display = 'none';
+                }
+
+                const btn = document.getElementById('brew-btn');
+                const isReady = data.status === 'IDLE' && data.mug_present;
+
+                if (isReady) {
+                    btn.disabled = false;
+                    btn.innerText = 'INITIATE BREW';
+                } else {
+                    btn.disabled = true;
+                    if (data.status !== 'IDLE') btn.innerText = data.status;
+                    else if (!data.mug_present) btn.innerText = 'NO VESSEL';
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function startBrew() {
+            const recipeId = document.getElementById('recipe-select').value;
+            if (!recipeId) return;
+
+            const btn = document.getElementById('brew-btn');
+            btn.disabled = true;
+            btn.innerText = 'WAITING...';
+            addLog(`Brewing sequence requested for ${currentPot}: ${recipeId}`);
+
+            try {
+                const response = await fetch(`/coffee/${currentPot}?recipe=${recipeId}`, { method: 'POST' });
+                if (!response.ok) {
+                    const err = await response.json();
+                    const msg = err.message || (err.detail && err.detail.message) || err.error || "Brew failed";
+                    addLog(`ERROR: ${msg}`);
+                    alert('ERROR: ' + msg);
+                } else {
+                    addLog("Hardware acknowledged brew request.");
+                }
+            } catch (e) {
+                addLog(`CONNECTION ERROR: ${e.message}`);
+                alert('CONNECTION ERROR: ' + e.message);
+            } finally {
+                updateStatus();
+            }
+        }
+
+        // Initialize
+        loadPots();
+        loadRecipes();
+        setInterval(updateStatus, 1000);
+        updateStatus();
+    </script>
+</body>
+
+</html>

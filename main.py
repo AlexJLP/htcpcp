@@ -1,17 +1,3 @@
-"""
-HTCPCP/1.0 — Server
-Hyper Text Coffee Pot Control Protocol
-RFC 2324 (coffee) · RFC 7168 (tea)
-
-Usage:
-    pip install -r requirements.txt
-    uvicorn main:app --reload --port 2324
-
-Then:
-    curl -X BREW http://localhost:2324/coffee/pot-1 \
-      -H "Accept-Additions: milk-type=Whole-milk; alcohol-type=Whisky"
-"""
-
 # ── Patch h11 to accept custom HTCPCP methods ─────────────────────────────────
 #
 # uvicorn uses h11 for HTTP/1.1 parsing. h11 validates method names against
@@ -53,6 +39,10 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from routes import router
+from hardware import HardwareController, CONTROLLERS
+from fastapi.responses import HTMLResponse, JSONResponse
+import asyncio
+import os
 
 
 # ── Structured logging ────────────────────────────────────────────────────────
@@ -115,6 +105,11 @@ class HTCPCPMiddleware(BaseHTTPMiddleware):
 app.add_middleware(HTCPCPMiddleware)
 app.include_router(router)
 
+@app.get("/", response_class=HTMLResponse)
+async def dashboard():
+    from routes import dashboard as get_dashboard_html
+    return await get_dashboard_html()
+
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
@@ -127,3 +122,15 @@ async def startup():
         registered_pots=list(POT_REGISTRY.keys()),
         port=2324,
     )
+
+    # Initialize Hardware Controllers
+    use_mock = os.getenv("HTCPCP_MOCK_HARDWARE", "0") == "1"
+    for uri, pot in POT_REGISTRY.items():
+        # Strip the scheme for the controller registry
+        pot_id = uri.split("://")[-1]
+        controller = HardwareController(pot, use_mock=use_mock)
+        CONTROLLERS[pot_id] = controller
+        
+        # Start the background sensor loop
+        asyncio.create_task(controller.update_loop())
+        log.info("hardware.controller_started", pot_id=pot_id, mock=use_mock)

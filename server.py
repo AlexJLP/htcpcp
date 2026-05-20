@@ -18,6 +18,8 @@ from models import (
     PotType,
     get_pot,
 )
+from hardware import HardwareController, CONTROLLERS, get_controller
+from typing import Any
 
 structlog.configure(
     processors=[
@@ -28,7 +30,7 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 2324
 
 
@@ -44,12 +46,16 @@ STATUS_TEXTS = {
     503: "Service Unavailable",
 }
 
-def http_response(status: int, body: dict) -> bytes:
-    body_bytes = json.dumps(body, indent=2).encode("utf-8")
+def http_response(status: int, body: Any, content_type: str = "application/json") -> bytes:
+    if content_type == "application/json":
+        body_bytes = json.dumps(body, indent=2).encode("utf-8")
+    else:
+        body_bytes = body.encode("utf-8") if isinstance(body, str) else body
+        
     status_text = STATUS_TEXTS.get(status, "Unknown")
     headers = (
         f"HTTP/1.1 {status} {status_text}\r\n"
-        f"Content-Type: message/coffeepot\r\n"
+        f"Content-Type: {content_type}\r\n"
         f"Content-Length: {len(body_bytes)}\r\n"
         f"X-Protocol: HTCPCP/1.0\r\n"
         f"X-RFC: RFC-2324, RFC-7168\r\n"
@@ -95,7 +101,16 @@ def parse_request(raw: bytes):
             return None
 
         method = parts[0].upper()
-        path   = parts[1].split("?")[0]
+        full_path = parts[1]
+        path = full_path.split("?")[0]
+        
+        query_params = {}
+        if "?" in full_path:
+            query_str = full_path.split("?", 1)[1]
+            for pair in query_str.split("&"):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    query_params[k] = v
 
         headers = {}
         for line in lines[1:]:
@@ -103,7 +118,7 @@ def parse_request(raw: bytes):
                 k, v = line.split(": ", 1)
                 headers[k.lower()] = v.strip()
 
-        return method, path, headers, body
+        return method, path, headers, body, query_params
     except Exception as e:
         log.error("htcpcp.parse_error", error=str(e))
         return None
@@ -123,7 +138,7 @@ def parse_additions(header: str | None) -> dict:
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
-async def handle_brew(pot_id: str, headers: dict) -> bytes:
+async def handle_brew(pot_id: str, headers: dict, query_params: dict) -> bytes:
     pot = get_pot(pot_id)
     if not pot:
         return http_response(404, {"error": "Not Found", "pot_id": pot_id})
@@ -168,29 +183,58 @@ async def handle_brew(pot_id: str, headers: dict) -> bytes:
     # Not RFC compliant. Definitely not coffee compliant.
     async with pot._lock:
 
-        # Re-check level inside the lock — another BREW may have emptied it
-        if pot.level == 0:
+        if not pot.mug_present:
+            log.warning("htcpcp.no_mug", pot_id=pot_id)
             return http_response(503, {
                 "error": "Service Unavailable",
-                "message": "Pot is empty. Refill required.",
-                "note": "503, not 418 — the pot is a coffee pot, just empty.",
+                "message": "No mug detected. Please place a mug under the spout.",
+                "rfc": "RFC 2324 §2.3.2 (extended)",
+            })
+
+        # Validate that recipe exists
+        controller = get_controller(pot_id)
+        recipe = query_params.get("recipe", "default")
+        if controller and recipe not in controller.recipes:
+            log.warning("htcpcp.invalid_recipe", pot_id=pot_id, requested_recipe=recipe)
+            return http_response(400, {
+                "error": "Bad Request",
+                "message": f"The recipe '{recipe}' does not exist in the configuration.",
+                "available_recipes": list(controller.recipes.keys()),
+            })
+
+        # Validate that pot is not busy
+        if pot.status not in [PotStatus.IDLE, PotStatus.READY, PotStatus.NO_MUG]:
+            log.warning("htcpcp.pot_busy", pot_id=pot_id, current_status=pot.status)
+            return http_response(409, {
+                "error": "Conflict",
+                "message": "The pot is currently busy with another brewing cycle.",
+                "current_status": pot.status,
             })
 
         # CAS check — optional header X-Brew-Version for optimistic concurrency
         expected_version = headers.get("x-brew-version")
         if expected_version is not None:
-            if int(expected_version) != pot.brew_version:
-                return http_response(409, {
-                    "error": "Conflict",
-                    "message": "Pot was modified by a concurrent BREW.",
-                    "current_version": pot.brew_version,
-                    "hint": "Retry with current brew_version.",
+            try:
+                if int(expected_version) != pot.brew_version:
+                    return http_response(409, {
+                        "error": "Conflict",
+                        "message": "Pot was modified by a concurrent BREW.",
+                        "current_version": pot.brew_version,
+                        "hint": "Retry with current brew_version.",
+                    })
+            except ValueError:
+                return http_response(400, {
+                    "error": "Bad Request",
+                    "message": "Invalid X-Brew-Version header value. Must be an integer.",
                 })
 
         record   = pot.add_brew(additions)   # increments brew_version
-        pot.level -= 1
         has_milk  = "milk-type" in additions
-        pot.status = PotStatus.POURING_MILK if has_milk else PotStatus.BREWING
+        pot.status = PotStatus.POURING_MILK if has_milk else PotStatus.DISPENSING_GROUNDS
+
+        # Trigger physical hardware sequence
+        if controller:
+            asyncio.create_task(controller.run_brew_sequence(recipe))
 
     # ── End critical section ──────────────────────────────────────────────────
 
@@ -211,14 +255,14 @@ async def handle_brew(pot_id: str, headers: dict) -> bytes:
     })
 
 
-async def handle_get_status(pot_id: str, _headers: dict) -> bytes:
+async def handle_get_status(pot_id: str, _headers: dict, _query_params: dict) -> bytes:
     pot = get_pot(pot_id)
     if not pot:
         return http_response(404, {"error": "Not Found", "pot_id": pot_id})
     return http_response(200, pot.to_dict())
 
 
-async def handle_get_history(pot_id: str, _headers: dict) -> bytes:
+async def handle_get_history(pot_id: str, _headers: dict, _query_params: dict) -> bytes:
     pot = get_pot(pot_id)
     if not pot:
         return http_response(404, {"error": "Not Found", "pot_id": pot_id})
@@ -229,7 +273,7 @@ async def handle_get_history(pot_id: str, _headers: dict) -> bytes:
     })
 
 
-async def handle_propfind(pot_id: str, _headers: dict) -> bytes:
+async def handle_propfind(pot_id: str, _headers: dict, _query_params: dict) -> bytes:
     pot = get_pot(pot_id)
     if not pot:
         return http_response(404, {"error": "Not Found", "pot_id": pot_id})
@@ -240,7 +284,7 @@ async def handle_propfind(pot_id: str, _headers: dict) -> bytes:
     })
 
 
-async def handle_when(pot_id: str, _headers: dict) -> bytes:
+async def handle_when(pot_id: str, _headers: dict, _query_params: dict) -> bytes:
     pot = get_pot(pot_id)
     if not pot:
         return http_response(404, {"error": "Not Found", "pot_id": pot_id})
@@ -263,14 +307,61 @@ async def handle_when(pot_id: str, _headers: dict) -> bytes:
         "rfc":            "RFC 2324 §2.1.3",
     })
 
+async def handle_dashboard(_id, _headers: dict, _query_params: dict) -> bytes:
+    try:
+        with open("index.html", "r") as f:
+            html = f.read()
+        return http_response(200, html, content_type="text/html")
+    except FileNotFoundError:
+        return http_response(404, "Dashboard file not found.", content_type="text/plain")
 
-async def handle_registry(_pot_id, _headers: dict) -> bytes:
-    from models import POT_REGISTRY
+async def handle_static(filename: str, _headers: dict, _query_params: dict) -> bytes:
+    import os
+    import mimetypes
+    
+    if not filename or ".." in filename or not os.path.exists(filename):
+        return http_response(404, "File not found.", content_type="text/plain")
+        
+    content_type, _ = mimetypes.guess_type(filename)
+    content_type = content_type or "application/octet-stream"
+    
+    try:
+        with open(filename, "rb") as f:
+            content = f.read()
+        return http_response(200, content, content_type=content_type)
+    except Exception as e:
+        return http_response(500, str(e), content_type="text/plain")
+
+async def handle_api_recipes(_id, _headers: dict, _query_params: dict) -> bytes:
+    from hardware import CONTROLLERS
+    controller = CONTROLLERS.get("pot-1")
+    if not controller:
+        return http_response(404, {"error": "Controller not found"})
     return http_response(200, {
-        "protocol": "HTCPCP/1.0",
-        "rfc":      ["RFC 2324", "RFC 7168"],
-        "pots":     {uri: pot.to_dict() for uri, pot in POT_REGISTRY.items()},
-        "methods":  ["BREW", "GET", "PROPFIND", "WHEN"],
+        "recipes": controller.recipes,
+        "calibration": controller.calibration
+    })
+
+async def handle_api_pots(_id, _headers: dict, _query_params: dict) -> bytes:
+    from models import POT_REGISTRY
+    pots = [{"id": pot.id, "name": uri} for uri, pot in POT_REGISTRY.items()]
+    return http_response(200, pots)
+
+async def handle_api_status(_id, _headers: dict, _query_params: dict) -> bytes:
+    """JSON status for the web UI."""
+    from models import get_pot
+    pot_id = _query_params.get("pot", "pot-1")
+    pot = get_pot(pot_id)
+    if not pot:
+        return http_response(404, {"error": "Pot not found"})
+    return http_response(200, {
+        "id": pot.id,
+        "status": pot.status.name.replace("_", " "),
+        "temperature": pot.temperature,
+        "mug_present": pot.mug_present,
+        "level": pot.level,
+        "current_phase": pot.current_phase,
+        "progress": pot.progress,
     })
 
 
@@ -282,11 +373,18 @@ ROUTES = [
     (re.compile(r"^/coffee/([^/]+)/history$"),    {"GET":  handle_get_history}),
     (re.compile(r"^/coffee/([^/]+)/additions$"),  {"PROPFIND": handle_propfind}),
     (re.compile(r"^/coffee/([^/]+)/stop-milk$"),  {"WHEN": handle_when}),
-    (re.compile(r"^/$"),                          {"GET":  handle_registry}),
+    (re.compile(r"^/api/recipes$"),               {"GET":  handle_api_recipes}),
+    (re.compile(r"^/api/pots$"),                  {"GET":  handle_api_pots}),
+    (re.compile(r"^/api/status$"),                {"GET":  handle_api_status}),
+    (re.compile(r"^/htcpcp-docs$"),               {"GET":  handle_docs_info}),
+    (re.compile(r"^/(.*\.jpg)$"),                 {"GET":  handle_static}),
+    (re.compile(r"^/(.*\.js)$"),                  {"GET":  handle_static}),
+    (re.compile(r"^/(.*\.css)$"),                 {"GET":  handle_static}),
+    (re.compile(r"^/$"),                          {"GET":  handle_dashboard}),
 ]
 
 
-async def dispatch(method: str, path: str, headers: dict) -> bytes:
+async def dispatch(method: str, path: str, headers: dict, query_params: dict) -> bytes:
     if method == "BREW" and not path.startswith("/coffee/"):
         return http_response(418, {
             "error": "Wrong universe",
@@ -304,7 +402,7 @@ async def dispatch(method: str, path: str, headers: dict) -> bytes:
                     "error":   "Method Not Allowed",
                     "allowed": list(method_map.keys()),
                 })
-            return await handler(pot_id, headers)
+            return await handler(pot_id, headers, query_params)
 
     return http_response(404, {"error": "Not Found", "path": path})
 
@@ -324,10 +422,10 @@ async def handle_connection(reader: asyncio.StreamReader, writer: asyncio.Stream
             await writer.drain()
             return
 
-        method, path, headers, body = parsed
-        log.info("htcpcp.request", method=method, path=path, peer=str(peer))
+        method, path, headers, body, query_params = parsed
+        log.info("htcpcp.request", method=method, path=path, peer=str(peer), query=query_params)
 
-        response = await dispatch(method, path, headers)
+        response = await dispatch(method, path, headers, query_params)
         writer.write(response)
         await writer.drain()
 
@@ -360,6 +458,15 @@ async def main():
     print(f"\n    # Optimistic concurrency:")
     print(f"    curl -X BREW http://{HOST}:{PORT}/coffee/pot-1 \\")
     print(f'         -H "X-Brew-Version: 0"  # → 409 if pot was modified\n')
+    # Initialize Hardware Controllers
+    from models import POT_REGISTRY
+    use_mock = False # Default to mock for TCP server unless changed
+    for uri, pot in POT_REGISTRY.items():
+        pot_id = uri.split("://")[-1]
+        controller = HardwareController(pot, use_mock=use_mock)
+        CONTROLLERS[pot_id] = controller
+        asyncio.create_task(controller.update_loop())
+
     async with server:
         await server.serve_forever()
 

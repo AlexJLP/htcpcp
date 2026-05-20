@@ -5,8 +5,9 @@ RFC 2324 (coffee) + RFC 7168 (tea)
 """
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+import os
 
 from models import (
     DECAF_RESPONSE,
@@ -16,7 +17,7 @@ from models import (
     PotType,
     get_pot,
 )
-
+from hardware import get_controller
 router = APIRouter()
 log = structlog.get_logger()
 
@@ -92,6 +93,8 @@ async def brew(pot_id: str, request: Request):
         418 — I'm a teapot (if the target pot is a teapot)
         503 — Pot is empty
     """
+    recipe = request.query_params.get("recipe", "default")
+    log.info("htcpcp.brew_request_params", query_params=dict(request.query_params), resolved_recipe=recipe)
     pot = resolve_pot(pot_id)
 
     # RFC 2324 §2.3.2 — Any attempt to brew coffee with a teapot
@@ -109,12 +112,48 @@ async def brew(pot_id: str, request: Request):
             "suggestion": "Try coffee://pot-1 instead.",
         })
 
-    if pot.level == 0:
-        log.warning("htcpcp.pot_empty", pot_id=pot_id)
+    # Validate that recipe exists
+    controller = get_controller(pot_id)
+    if controller and recipe not in controller.recipes:
+        log.warning("htcpcp.invalid_recipe", pot_id=pot_id, requested_recipe=recipe)
+        raise HTTPException(status_code=400, detail={
+            "error": "Bad Request",
+            "message": f"The recipe '{recipe}' does not exist in the configuration.",
+            "available_recipes": list(controller.recipes.keys()),
+        })
+
+    # Validate that pot is not busy
+    if pot.status not in [PotStatus.IDLE, PotStatus.READY, PotStatus.NO_MUG]:
+        log.warning("htcpcp.pot_busy", pot_id=pot_id, current_status=pot.status)
+        raise HTTPException(status_code=409, detail={
+            "error": "Conflict",
+            "message": "The pot is currently busy with another brewing cycle.",
+            "current_status": pot.status,
+        })
+
+    # Optimistic concurrency CAS check
+    expected_version = request.headers.get("x-brew-version")
+    if expected_version is not None:
+        try:
+            if int(expected_version) != pot.brew_version:
+                raise HTTPException(status_code=409, detail={
+                    "error": "Conflict",
+                    "message": "Pot was modified by a concurrent BREW.",
+                    "current_version": pot.brew_version,
+                    "hint": "Retry with current brew_version.",
+                })
+        except ValueError:
+            raise HTTPException(status_code=400, detail={
+                "error": "Bad Request",
+                "message": "Invalid X-Brew-Version header value. Must be an integer.",
+            })
+
+    if not pot.mug_present:
+        log.warning("htcpcp.no_mug", pot_id=pot_id)
         raise HTTPException(status_code=503, detail={
             "error": "Service Unavailable",
-            "message": "Pot is empty. Please refill before brewing.",
-            "note": "This is a 503, not a 418. The pot is a coffee pot — it's just empty.",
+            "message": "No mug detected. Please place a mug under the spout.",
+            "rfc": "RFC 2324 §2.3.2 (extended)",
         })
 
     additions_header = request.headers.get("accept-additions")
@@ -122,12 +161,13 @@ async def brew(pot_id: str, request: Request):
     validate_additions(additions)
 
     record = pot.add_brew(additions)
-    pot.level -= 1
-
-    # If milk is requested → enter POURING_MILK state
-    # Client must send WHEN to exit this state
     has_milk = "milk-type" in additions
-    pot.status = PotStatus.POURING_MILK if has_milk else PotStatus.BREWING
+    pot.status = PotStatus.POURING_MILK if has_milk else PotStatus.DISPENSING_GROUNDS
+
+    # Trigger physical hardware sequence
+    if controller:
+        log.info("htcpcp.hardware_triggered", pot_id=pot_id, recipe=recipe)
+        asyncio.create_task(controller.run_brew_sequence(recipe))
 
     log.info("htcpcp.brew",
         pot_id=pot_id,
@@ -211,7 +251,7 @@ def when(pot_id: str):
             "rfc": "RFC 2324 §2.1.3",
         })
 
-    pot.status = PotStatus.BREWING
+    pot.status = PotStatus.DISPENSING_GROUNDS
 
     log.info("htcpcp.when_milk_stopped", pot_id=pot_id, status_code=200)
 
@@ -226,14 +266,71 @@ def when(pot_id: str):
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
-@router.get("/")
-def registry():
-    """List all registered pots."""
-    from models import POT_REGISTRY
+# ── WEB UI ────────────────────────────────────────────────────────────────────
+
+@router.get("/", response_class=HTMLResponse)
+async def dashboard():
+    """Serve the minimal dashboard from index.html."""
+    try:
+        with open("index.html", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "Dashboard file not found."
+
+@router.get("/api/recipes")
+async def get_api_recipes():
+    """Returns all loaded recipes and calibration for the viewer."""
+    controller = get_controller("pot-1")
+    if not controller:
+        return {"error": "Controller not found"}
     return {
-        "protocol": "HTCPCP/1.0",
-        "rfc": ["RFC 2324", "RFC 7168"],
-        "pots": {uri: pot.to_dict() for uri, pot in POT_REGISTRY.items()},
-        "methods": ["BREW", "GET", "PROPFIND", "WHEN"],
-        "supported_additions": list(SUPPORTED_ADDITIONS.keys()),
+        "recipes": controller.recipes,
+        "calibration": controller.calibration
     }
+
+@router.get("/api/pots")
+async def get_api_pots():
+    """List available pots."""
+    from models import POT_REGISTRY
+    return [{"id": p.id, "name": uri} for uri, p in POT_REGISTRY.items()]
+
+@router.get("/api/status")
+async def get_api_status(pot: str = "pot-1"):
+    """Real-time status for the web UI."""
+    from models import get_pot
+    p = get_pot(pot)
+    if not p:
+        return {"error": "Pot not found"}
+    return {
+        "id": p.id,
+        "status": p.status.name.replace("_", " "),
+        "temperature": p.temperature,
+        "mug_present": p.mug_present,
+        "level": p.level,
+        "current_phase": p.current_phase,
+        "progress": p.progress,
+    }
+
+@router.get("/{filename}.jpg")
+async def get_jpg(filename: str):
+    """Serve static JPG images."""
+    path = f"{filename}.jpg"
+    if os.path.exists(path):
+        return FileResponse(path)
+    return JSONResponse(status_code=404, content={"error": "Not Found"})
+
+@router.get("/{filename}.js")
+async def get_js(filename: str):
+    """Serve static JS files."""
+    path = f"{filename}.js"
+    if os.path.exists(path):
+        return FileResponse(path)
+    return JSONResponse(status_code=404, content={"error": "Not Found"})
+
+@router.get("/{filename}.css")
+async def get_css(filename: str):
+    """Serve static CSS files."""
+    path = f"{filename}.css"
+    if os.path.exists(path):
+        return FileResponse(path)
+    return JSONResponse(status_code=404, content={"error": "Not Found"})

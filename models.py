@@ -17,8 +17,14 @@ class PotType(str, Enum):
 class PotStatus(str, Enum):
     IDLE = "idle"
     BREWING = "brewing"
+    DISPENSING_GROUNDS = "dispensing-grounds"
     POURING_MILK = "pouring-milk"
+    HEATING_WATER = "heating"
+    BLOOMING = "blooming"
+    POURING = "pouring"
+    INFUSING = "infusing"
     READY = "ready"
+    NO_MUG = "no-mug"
 
 
 @dataclass
@@ -41,12 +47,17 @@ class BrewRecord:
 class CoffeePot:
     id: str
     pot_type: PotType
-    capacity: int
-    level: int
     varieties: list[str] = field(default_factory=list)
     status: PotStatus = field(default=PotStatus.IDLE)
     brew_history: list[BrewRecord] = field(default_factory=list)
     brew_version: int = field(default=0)
+    
+    # Physical state
+    temperature: float = field(default=20.0)
+    mug_present: bool = field(default=True)
+    level: float = field(default=100.0)
+    current_phase: int = field(default=-1)
+    progress: float = field(default=0.0)
 
     # Per-pot asyncio lock — prevents concurrent BREWs racing on level/status.
     # Classic TOCTOU: two requests both read level > 0, both proceed,
@@ -58,12 +69,11 @@ class CoffeePot:
             "pot_id": self.id,
             "type": self.pot_type,
             "status": self.status,
-            "level": self.level,
-            "capacity": self.capacity,
-            "level_display": f"{self.level}/{self.capacity} cups",
             "varieties": self.varieties,
             "brew_count": len(self.brew_history),
             "brew_version": self.brew_version,
+            "temperature": round(self.temperature, 2),
+            "mug_present": self.mug_present,
         }
 
     def add_brew(self, additions: dict) -> BrewRecord:
@@ -79,13 +89,7 @@ class CoffeePot:
 
 # ── RFC 2324 §2.1.1 — Supported additions ────────────────────────────────────
 
-SUPPORTED_ADDITIONS: dict[str, list[str]] = {
-    "milk-type":      ["Cream", "Half-and-half", "Whole-milk", "Part-Skim", "Skim", "Non-Dairy"],
-    "syrup-type":     ["Vanilla", "Almond", "Raspberry", "Chocolate"],
-    "sweetener-type": ["Sugar", "Honey", "Artificial"],
-    "spice-type":     ["Cinnamon", "Cardamom"],
-    "alcohol-type":   ["Whisky", "Rum", "Kahlua", "Aquavit"],
-}
+SUPPORTED_ADDITIONS: dict[str, list[str]] = {}
 
 # RFC 2324 §2.1.1 — no decaf, intentionally.
 # "What's the point?" — Larry Masinter, 1998
@@ -98,30 +102,12 @@ POT_REGISTRY: dict[str, CoffeePot] = {
     "coffee://pot-1": CoffeePot(
         id="pot-1",
         pot_type=PotType.COFFEE,
-        capacity=12,
-        level=8,
-        varieties=["Espresso", "Lungo", "Americano"],
-    ),
-    "coffee://pot-2": CoffeePot(
-        id="pot-2",
-        pot_type=PotType.COFFEE,
-        capacity=6,
-        level=2,
-        varieties=["Espresso"],
+        varieties=["Pourover"],
     ),
     "tea://kettle-1": CoffeePot(
         id="kettle-1",
         pot_type=PotType.TEAPOT,
-        capacity=8,
-        level=6,
-        varieties=["Earl Grey", "Chamomile", "Darjeeling"],
-    ),
-    "tea://kettle-2": CoffeePot(
-        id="kettle-2",
-        pot_type=PotType.TEAPOT,
-        capacity=4,
-        level=4,
-        varieties=["Oolong"],
+        varieties=["Earl Grey"],
     ),
 }
 

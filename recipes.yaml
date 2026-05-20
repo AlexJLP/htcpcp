@@ -1,0 +1,70 @@
+calibration:
+  # How many ml of water the pump pushes per second
+  ml_per_second: 5.0  
+  
+  # How many stepper steps it takes to dispense 1 gram of coffee
+  steps_per_gram: 100 
+
+recipes:
+  default:
+    name: "Classic Pourover"
+    target_temp: 92.0
+    coffee_grams: 15
+    phases:
+      - action: "bloom"
+        water_ml: 30
+        pause_seconds: 30
+      - action: "pour"
+        water_ml: 110
+        pause_seconds: 10
+      - action: "pour"
+        water_ml: 110
+        pause_seconds: 20
+
+  test_brew:
+    name: "Fast Test Brew"
+    target_temp: 20.0
+    coffee_grams: 1
+    phases:
+      - action: "bloom"
+        water_ml: 15
+        pause_seconds: 5
+      - action: "pour"
+        water_ml: 50
+        pause_seconds: 5
+
+  james_hoffmann:
+    name: "James Hoffmann's Ultimate V60"
+    target_temp: 97.0
+    coffee_grams: 15
+    phases:
+      - action: "bloom"
+        water_ml: 45
+        pause_seconds: 45
+      - action: "pour"
+        water_ml: 105
+        pause_seconds: 10
+      - action: "pour"
+        water_ml: 100
+        pause_seconds: 30
+
+  tetsu_kasuya:
+    name: "Tetsu Kasuya's 4:6 Method"
+    target_temp: 92.0
+    coffee_grams: 15
+    phases:
+      - action: "pour"
+        water_ml: 50
+        pause_seconds: 45
+      - action: "pour"
+        water_ml: 50
+        pause_seconds: 45
+      - action: "pour"
+        water_ml: 50
+        pause_seconds: 45
+      - action: "pour"
+        water_ml: 50
+        pause_seconds: 45
+      - action: "pour"
+        water_ml: 50
+        pause_seconds: 45

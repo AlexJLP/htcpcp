@@ -4,14 +4,50 @@
 
 A production-grade implementation of the most important protocol you've never deployed.
 
-## Quickstart
+## Installation & Dependency Management
+
+This project utilizes `pyproject.toml` for standard PEP 621 project declarations, managed via **`uv`** — the ultra-fast Python package installer and resolver.
+
+### 1. Setup & Installation
+
+To set up a virtual environment and install dependencies:
 
 ```bash
-pip install -r requirements.txt
-uvicorn main:app --reload --port 2324
+# Create a virtual environment
+uv venv
+source .venv/bin/activate  # Or .venv\Scripts\activate on Windows
+
+# A) Standard Development Install (Mock Mode, macOS/Windows/Linux)
+uv pip install -e . --group dev
+
+# B) Raspberry Pi Physical Install (GPIO + OLED hardware support)
+uv pip install -e . --group pi
+
+# C) Complete Setup (Full suite of dev tools + physical packages)
+uv pip install -e . --group dev --group pi
 ```
 
-The server runs on port **2324** — the RFC number. Obviously.
+Alternatively, install using the pre-compiled, locked dependency lists:
+
+```bash
+# Install minimal platform-agnostic production dependencies
+uv pip install -r requirements-min.txt
+
+# Install all dependencies (including dev and hardware packages)
+uv pip install -r requirements.txt
+```
+
+### 2. Compile & Lock Dependencies
+
+When making changes to dependencies in `pyproject.toml`, compile and lock the entire dependency graph instantly:
+
+```bash
+# Compile and lock full production + dev + pi graph
+uv pip compile pyproject.toml --group dev --group pi -o requirements.txt
+
+# Compile and lock lightweight platform-agnostic production graph
+uv pip compile pyproject.toml -o requirements-min.txt
+```
 
 ## Endpoints
 
@@ -73,7 +109,11 @@ curl -X BREW http://localhost:2324/coffee/pot-1 \
 ## Tests
 
 ```bash
+# Run tests inside the virtual environment:
 pytest test_htcpcp.py -v
+
+# Or run tests using uv run directly:
+uv run pytest test_htcpcp.py -v
 ```
 
 ## RFC references
@@ -93,8 +133,11 @@ uvicorn validates HTTP method names at the socket level, before h11 even parses 
 RFC 7230 token as a method name — which `BREW`, `WHEN`, and `PROPFIND` are.
 
 ```bash
-# Use this instead of uvicorn:
+# Run the raw TCP server inside the virtual environment:
 python server.py
+
+# Or run instantly using uv:
+uv run python server.py
 ```
 
 `main.py` is kept for reference and for the test suite (FastAPI TestClient bypasses

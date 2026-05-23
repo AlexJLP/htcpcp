@@ -1,3 +1,32 @@
+[project]
+name = "Covefe"
+version = "0.1.0"
+description = "HTCPCP hardware controller dashboard and server"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.115.0",
+    "starlette>=0.38.6",
+    "uvicorn[standard]>=0.30.6",
+    "h11>=0.14.0",
+    "structlog>=24.4.0",
+    "httpx>=0.27.2",
+    "PyYAML>=6.0.1",
+    "Pillow>=10.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pylint>=3.0.0",
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+]
+pi = [
+    "gpiozero>=2.0.1; sys_platform == 'linux'",
+    "rpi-lgpio>=0.6; sys_platform == 'linux'",
+    "luma.oled>=3.11.0; sys_platform == 'linux'",
+]
+
 [tool.pylint.messages_control]
 disable = [
     "missing-module-docstring",
@@ -11,4 +40,16 @@ disable = [
     "duplicate-code",
     "too-few-public-methods",
     "line-too-long"
+]
+
+[tool.pylint.import]
+ignored-modules = [
+    "gpiozero",
+    "luma",
+    "luma.oled",
+    "luma.oled.device",
+    "luma.core",
+    "luma.core.interface",
+    "luma.core.interface.serial",
+    "luma.core.render"
 ]

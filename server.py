@@ -8,6 +8,8 @@ Usage:
 
 import asyncio
 import json
+import mimetypes
+import os
 import re
 from typing import Any
 
@@ -16,6 +18,7 @@ import structlog
 from hardware import CONTROLLERS, HardwareController, get_controller
 from models import (
     DECAF_RESPONSE,
+    POT_REGISTRY,
     SUPPORTED_ADDITIONS,
     PotStatus,
     PotType,
@@ -370,9 +373,6 @@ async def handle_dashboard(_id, _headers: dict, _query_params: dict) -> bytes:
 
 
 async def handle_static(filename: str, _headers: dict, _query_params: dict) -> bytes:
-    import os
-    import mimetypes
-
     if not filename or ".." in filename or not os.path.exists(filename):
         return http_response(404, "File not found.", content_type="text/plain")
 
@@ -388,8 +388,6 @@ async def handle_static(filename: str, _headers: dict, _query_params: dict) -> b
 
 
 async def handle_api_recipes(_id, _headers: dict, _query_params: dict) -> bytes:
-    from hardware import CONTROLLERS
-
     controller = CONTROLLERS.get("pot-1")
     if not controller:
         return http_response(404, {"error": "Controller not found"})
@@ -399,16 +397,12 @@ async def handle_api_recipes(_id, _headers: dict, _query_params: dict) -> bytes:
 
 
 async def handle_api_pots(_id, _headers: dict, _query_params: dict) -> bytes:
-    from models import POT_REGISTRY
-
     pots = [{"id": pot.id, "name": uri} for uri, pot in POT_REGISTRY.items()]
     return http_response(200, pots)
 
 
 async def handle_api_status(_id, _headers: dict, _query_params: dict) -> bytes:
     """JSON status for the web UI."""
-    from models import get_pot
-
     pot_id = _query_params.get("pot", "pot-1")
     pot = get_pot(pot_id)
     if not pot:
@@ -539,8 +533,6 @@ async def main():
     print(f"    curl -X BREW http://{HOST}:{PORT}/coffee/pot-1 \\")
     print(f'         -H "X-Brew-Version: 0"  # → 409 if pot was modified\n')
     # Initialize Hardware Controllers
-    from models import POT_REGISTRY
-
     use_mock = False  # Default to mock for TCP server unless changed
     for uri, pot in POT_REGISTRY.items():
         pot_id = uri.rsplit("://", maxsplit=1)[-1]

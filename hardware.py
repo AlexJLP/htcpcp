@@ -1,13 +1,12 @@
 import asyncio
-import os
+from concurrent.futures import ThreadPoolExecutor
 import glob
+import os
 import time
+from typing import Any, Dict, Optional
+
 import structlog
 import yaml
-from typing import Optional, Dict, Any
-from concurrent.futures import ThreadPoolExecutor
-
-from PIL import Image, ImageDraw, ImageFont
 
 # Try to import hardware-specific libs, fallback to mock if testing not on pi
 try:

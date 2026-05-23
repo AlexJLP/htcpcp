@@ -4,20 +4,23 @@ Implements: BREW, GET, PROPFIND, WHEN
 RFC 2324 (coffee) + RFC 7168 (tea)
 """
 
-import structlog
-from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+import asyncio
 import os
 
+import structlog
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+
+from hardware import get_controller
 from models import (
     DECAF_RESPONSE,
+    POT_REGISTRY,
     SUPPORTED_ADDITIONS,
     CoffeePot,
     PotStatus,
     PotType,
     get_pot,
 )
-from hardware import get_controller
 
 router = APIRouter()
 log = structlog.get_logger()
@@ -170,14 +173,14 @@ async def brew(pot_id: str, request: Request):
                         "hint": "Retry with current brew_version.",
                     },
                 )
-        except ValueError:
+        except ValueError as exc:
             raise HTTPException(
                 status_code=400,
                 detail={
                     "error": "Bad Request",
                     "message": "Invalid X-Brew-Version header value. Must be an integer.",
                 },
-            )
+            ) from exc
 
     if not pot.mug_present:
         log.warning("htcpcp.no_mug", pot_id=pot_id)
@@ -338,16 +341,12 @@ async def get_api_recipes():
 @router.get("/api/pots")
 async def get_api_pots():
     """List available pots."""
-    from models import POT_REGISTRY
-
     return [{"id": p.id, "name": uri} for uri, p in POT_REGISTRY.items()]
 
 
 @router.get("/api/status")
 async def get_api_status(pot: str = "pot-1"):
     """Real-time status for the web UI."""
-    from models import get_pot
-
     p = get_pot(pot)
     if not p:
         return {"error": "Pot not found"}

@@ -1,15 +1,13 @@
-
+import asyncio
+import os
 
 import structlog
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from hardware import CONTROLLERS, HardwareController
 from routes import router
-from hardware import HardwareController, CONTROLLERS
-from fastapi.responses import HTMLResponse, JSONResponse
-import asyncio
-import os
 
 
 # ── Structured logging ────────────────────────────────────────────────────────

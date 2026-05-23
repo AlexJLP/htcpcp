@@ -7,7 +7,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from hardware import CONTROLLERS, HardwareController
-from routes import router
+from models import POT_REGISTRY
+from routes import dashboard as get_dashboard_html, router
 
 
 # ── Structured logging ────────────────────────────────────────────────────────
@@ -79,8 +80,6 @@ app.include_router(router)
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    from routes import dashboard as get_dashboard_html
-
     return await get_dashboard_html()
 
 
@@ -89,7 +88,6 @@ async def dashboard():
 
 @app.on_event("startup")
 async def startup():
-    from models import POT_REGISTRY
 
     log.info(
         "htcpcp.startup",

@@ -323,7 +323,7 @@ def when(pot_id: str):
 async def dashboard():
     """Serve the minimal dashboard from index.html."""
     try:
-        with open("index.html", "r", encoding="utf-8") as f:
+        with open("index.html", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return "Dashboard file not found."

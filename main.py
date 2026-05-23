@@ -8,8 +8,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from hardware import CONTROLLERS, HardwareController
 from models import POT_REGISTRY
-from routes import dashboard as get_dashboard_html, router
-
+from routes import dashboard as get_dashboard_html
+from routes import router
 
 # ── Structured logging ────────────────────────────────────────────────────────
 

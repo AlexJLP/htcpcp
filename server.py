@@ -363,7 +363,7 @@ async def handle_when(pot_id: str, _headers: dict, _query_params: dict) -> bytes
 
 async def handle_dashboard(_id, _headers: dict, _query_params: dict) -> bytes:
     try:
-        with open("index.html", "r", encoding="utf-8") as f:
+        with open("index.html", encoding="utf-8") as f:
             html = f.read()
         return http_response(200, html, content_type="text/html")
     except FileNotFoundError:
@@ -528,10 +528,10 @@ async def main():
     )
     print(f"\n☕  HTCPCP/1.0 — RFC 2324  ({HOST}:{PORT})\n")
     print(f"    curl -X BREW http://{HOST}:{PORT}/coffee/pot-1 \\")
-    print(f'         -H "Accept-Additions: milk-type=Whole-milk; alcohol-type=Whisky"')
-    print(f"\n    # Optimistic concurrency:")
+    print('         -H "Accept-Additions: milk-type=Whole-milk; alcohol-type=Whisky"')
+    print("\n    # Optimistic concurrency:")
     print(f"    curl -X BREW http://{HOST}:{PORT}/coffee/pot-1 \\")
-    print(f'         -H "X-Brew-Version: 0"  # → 409 if pot was modified\n')
+    print('         -H "X-Brew-Version: 0"  # → 409 if pot was modified\n')
     # Initialize Hardware Controllers
     use_mock = False  # Default to mock for TCP server unless changed
     for uri, pot in POT_REGISTRY.items():

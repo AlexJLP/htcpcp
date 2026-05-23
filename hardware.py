@@ -1,19 +1,19 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import glob
 import os
 import time
-from typing import Any, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Optional
 
 import structlog
 import yaml
 
 # Try to import hardware-specific libs, fallback to mock if testing not on pi
 try:
-    from gpiozero import OutputDevice, DistanceSensor
-    from luma.oled.device import ssd1306
+    from gpiozero import DistanceSensor, OutputDevice
     from luma.core.interface.serial import i2c
     from luma.core.render import canvas
+    from luma.oled.device import ssd1306
 
     HAS_HARDWARE = True
 except (ImportError, RuntimeError):
@@ -52,8 +52,8 @@ class HardwareController:
         self.oled = None
 
         self.temp_file: Optional[str] = None
-        self.recipes: Dict[str, Any] = {}
-        self.calibration: Dict[str, float] = {}
+        self.recipes: dict[str, Any] = {}
+        self.calibration: dict[str, float] = {}
 
         self._load_config()
 
@@ -64,7 +64,7 @@ class HardwareController:
 
     def _load_config(self):
         try:
-            with open("recipes.yaml", "r", encoding="utf-8") as f:
+            with open("recipes.yaml", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 self.recipes = config.get("recipes", {})
                 self.calibration = config.get(
@@ -120,7 +120,7 @@ class HardwareController:
         try:
             valid_readings = []
             for _ in range(3):
-                with open(self.temp_file, "r", encoding="utf-8") as f:
+                with open(self.temp_file, encoding="utf-8") as f:
                     lines = f.readlines()
                 if lines and "YES" in lines[0]:
                     equals_pos = lines[1].find("t=")

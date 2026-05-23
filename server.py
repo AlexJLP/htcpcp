@@ -9,8 +9,11 @@ Usage:
 import asyncio
 import json
 import re
+from typing import Any
+
 import structlog
 
+from hardware import CONTROLLERS, HardwareController, get_controller
 from models import (
     DECAF_RESPONSE,
     SUPPORTED_ADDITIONS,
@@ -18,8 +21,6 @@ from models import (
     PotType,
     get_pot,
 )
-from hardware import HardwareController, CONTROLLERS, get_controller
-from typing import Any
 
 structlog.configure(
     processors=[
@@ -359,7 +360,7 @@ async def handle_when(pot_id: str, _headers: dict, _query_params: dict) -> bytes
 
 async def handle_dashboard(_id, _headers: dict, _query_params: dict) -> bytes:
     try:
-        with open("index.html", "r") as f:
+        with open("index.html", "r", encoding="utf-8") as f:
             html = f.read()
         return http_response(200, html, content_type="text/html")
     except FileNotFoundError:
@@ -437,7 +438,6 @@ ROUTES = [
     (re.compile(r"^/api/recipes$"), {"GET": handle_api_recipes}),
     (re.compile(r"^/api/pots$"), {"GET": handle_api_pots}),
     (re.compile(r"^/api/status$"), {"GET": handle_api_status}),
-    (re.compile(r"^/htcpcp-docs$"), {"GET": handle_docs_info}),
     (re.compile(r"^/(.*\.jpg)$"), {"GET": handle_static}),
     (re.compile(r"^/(.*\.js)$"), {"GET": handle_static}),
     (re.compile(r"^/(.*\.css)$"), {"GET": handle_static}),
@@ -492,7 +492,7 @@ async def handle_connection(reader: asyncio.StreamReader, writer: asyncio.Stream
             await writer.drain()
             return
 
-        method, path, headers, body, query_params = parsed
+        method, path, headers, _body, query_params = parsed
         log.info(
             "htcpcp.request",
             method=method,
@@ -543,7 +543,7 @@ async def main():
 
     use_mock = False  # Default to mock for TCP server unless changed
     for uri, pot in POT_REGISTRY.items():
-        pot_id = uri.split("://")[-1]
+        pot_id = uri.rsplit("://", maxsplit=1)[-1]
         controller = HardwareController(pot, use_mock=use_mock)
         CONTROLLERS[pot_id] = controller
         asyncio.create_task(controller.update_loop())

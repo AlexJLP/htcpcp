@@ -1,38 +1,4 @@
-# ── Patch h11 to accept custom HTCPCP methods ─────────────────────────────────
-#
-# uvicorn uses h11 for HTTP/1.1 parsing. h11 validates method names against
-# a strict allowlist — BREW, WHEN, PROPFIND are not on it.
-# We extend it before the server starts so custom methods pass through.
-#
-# Our methods are valid RFC 7230 tokens (uppercase alpha), just not registered.
-# The patch is therefore RFC-safe — we're not bypassing anything meaningful.
 
-_HTCPCP_METHODS = {b"BREW", b"WHEN", b"PROPFIND"}
-
-try:
-    import h11._readers
-
-    h11._readers.KNOWN_METHODS = (  # type: ignore[attr-defined]
-        h11._readers.KNOWN_METHODS | _HTCPCP_METHODS
-    )
-except Exception:
-    pass
-
-try:
-    import h11._util
-
-    _orig = h11._util.normalize_method  # type: ignore[attr-defined]
-
-    def _patched(method: bytes) -> bytes:
-        if method.upper() in _HTCPCP_METHODS:
-            return method.upper()
-        return _orig(method)
-
-    h11._util.normalize_method = _patched  # type: ignore[attr-defined]
-except Exception:
-    pass
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 import structlog
 from fastapi import FastAPI, Request
@@ -139,7 +105,7 @@ async def startup():
     use_mock = os.getenv("HTCPCP_MOCK_HARDWARE", "0") == "1"
     for uri, pot in POT_REGISTRY.items():
         # Strip the scheme for the controller registry
-        pot_id = uri.split("://")[-1]
+        pot_id = uri.rsplit("://", maxsplit=1)[-1]
         controller = HardwareController(pot, use_mock=use_mock)
         CONTROLLERS[pot_id] = controller
 

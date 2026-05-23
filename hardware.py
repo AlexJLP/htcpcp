@@ -1,6 +1,7 @@
 import asyncio
 import os
 import glob
+import time
 import structlog
 import yaml
 from typing import Optional, Dict, Any
@@ -64,7 +65,7 @@ class HardwareController:
 
     def _load_config(self):
         try:
-            with open("recipes.yaml", "r") as f:
+            with open("recipes.yaml", "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 self.recipes = config.get("recipes", {})
                 self.calibration = config.get(
@@ -77,9 +78,6 @@ class HardwareController:
     def _setup_hardware(self):
         """Initialize all physical devices."""
         try:
-            # GPIO Outputs
-            from gpiozero import OutputDevice, DistanceSensor
-
             self.step_pin = OutputDevice(self.step_pin_id)
             self.dir_pin = OutputDevice(self.dir_pin_id)
             self.pump_pin = OutputDevice(self.pump_pin_id)
@@ -91,9 +89,6 @@ class HardwareController:
             )
 
             # OLED Display (SSD1306 via I2C)
-            from luma.oled.device import ssd1306
-            from luma.core.interface.serial import i2c
-
             serial = i2c(port=1, address=0x3C)
             self.oled = ssd1306(serial)
 
@@ -126,7 +121,7 @@ class HardwareController:
         try:
             valid_readings = []
             for _ in range(3):
-                with open(self.temp_file, "r") as f:
+                with open(self.temp_file, "r", encoding="utf-8") as f:
                     lines = f.readlines()
                 if lines and "YES" in lines[0]:
                     equals_pos = lines[1].find("t=")
@@ -134,7 +129,6 @@ class HardwareController:
                         val = float(lines[1][equals_pos + 2 :]) / 1000.0
                         if 0.0 <= val <= 100.0:
                             valid_readings.append(val)
-                import time
 
                 time.sleep(0.1)
             return (
@@ -156,8 +150,6 @@ class HardwareController:
     def _update_display(self):
         if self.use_mock or not self.oled:
             return
-
-        from luma.core.render import canvas
 
         with canvas(self.oled) as draw:
             draw.text((0, 0), "--- HTCPCP POT-1 ---", fill="white")
@@ -315,8 +307,6 @@ class HardwareController:
             self.step_pin.off()
 
     def _run_stepper(self, steps: int):
-        import time
-
         if self.use_mock:
             time.sleep(steps * 0.002)
             return

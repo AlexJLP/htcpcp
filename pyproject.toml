@@ -43,3 +43,6 @@ select = [
 ignore = [
     "E501", # Line too long (handled by formatter / ignored for long lines)
 ]
+
+[tool.setuptools]
+py-modules = ["hardware", "main", "models", "routes", "server"]

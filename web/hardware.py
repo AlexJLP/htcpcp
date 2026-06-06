@@ -19,7 +19,7 @@ try:
 except (ImportError, RuntimeError):
     HAS_HARDWARE = False
 
-from models import CoffeePot, PotStatus
+from web.models import CoffeePot, PotStatus
 
 log = structlog.get_logger()
 
@@ -64,7 +64,9 @@ class HardwareController:
 
     def _load_config(self):
         try:
-            with open("recipes.yaml", encoding="utf-8") as f:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            yaml_path = os.path.join(base_dir, "recipes.yaml")
+            with open(yaml_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 self.recipes = config.get("recipes", {})
                 self.calibration = config.get(

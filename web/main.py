@@ -6,10 +6,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from hardware import CONTROLLERS, HardwareController
-from models import POT_REGISTRY
-from routes import dashboard as get_dashboard_html
-from routes import router
+from web.hardware import CONTROLLERS, HardwareController
+from web.models import POT_REGISTRY
+from web.routes import dashboard as get_dashboard_html
+from web.routes import router
 
 # ── Structured logging ────────────────────────────────────────────────────────
 

@@ -15,8 +15,8 @@ from typing import Any
 
 import structlog
 
-from hardware import CONTROLLERS, HardwareController, get_controller
-from models import (
+from web.hardware import CONTROLLERS, HardwareController, get_controller
+from web.models import (
     DECAF_RESPONSE,
     POT_REGISTRY,
     SUPPORTED_ADDITIONS,
@@ -363,7 +363,9 @@ async def handle_when(pot_id: str, _headers: dict, _query_params: dict) -> bytes
 
 async def handle_dashboard(_id, _headers: dict, _query_params: dict) -> bytes:
     try:
-        with open("index.html", encoding="utf-8") as f:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        html_path = os.path.join(base_dir, "index.html")
+        with open(html_path, encoding="utf-8") as f:
             html = f.read()
         return http_response(200, html, content_type="text/html")
     except FileNotFoundError:
@@ -373,14 +375,16 @@ async def handle_dashboard(_id, _headers: dict, _query_params: dict) -> bytes:
 
 
 async def handle_static(filename: str, _headers: dict, _query_params: dict) -> bytes:
-    if not filename or ".." in filename or not os.path.exists(filename):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, filename)
+    if not filename or ".." in filename or not os.path.exists(path):
         return http_response(404, "File not found.", content_type="text/plain")
 
-    content_type, _ = mimetypes.guess_type(filename)
+    content_type, _ = mimetypes.guess_type(path)
     content_type = content_type or "application/octet-stream"
 
     try:
-        with open(filename, "rb") as f:
+        with open(path, "rb") as f:
             content = f.read()
         return http_response(200, content, content_type=content_type)
     except Exception as e:

@@ -11,8 +11,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from hardware import get_controller
-from models import (
+from web.hardware import get_controller
+from web.models import (
     DECAF_RESPONSE,
     POT_REGISTRY,
     SUPPORTED_ADDITIONS,
@@ -323,7 +323,9 @@ def when(pot_id: str):
 async def dashboard():
     """Serve the minimal dashboard from index.html."""
     try:
-        with open("index.html", encoding="utf-8") as f:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        html_path = os.path.join(base_dir, "index.html")
+        with open(html_path, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return "Dashboard file not found."
@@ -364,7 +366,8 @@ async def get_api_status(pot: str = "pot-1"):
 @router.get("/{filename}.jpg")
 async def get_jpg(filename: str):
     """Serve static JPG images."""
-    path = f"{filename}.jpg"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, f"{filename}.jpg")
     if os.path.exists(path):
         return FileResponse(path)
     return JSONResponse(status_code=404, content={"error": "Not Found"})
@@ -373,7 +376,8 @@ async def get_jpg(filename: str):
 @router.get("/{filename}.js")
 async def get_js(filename: str):
     """Serve static JS files."""
-    path = f"{filename}.js"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, f"{filename}.js")
     if os.path.exists(path):
         return FileResponse(path)
     return JSONResponse(status_code=404, content={"error": "Not Found"})
@@ -382,7 +386,8 @@ async def get_js(filename: str):
 @router.get("/{filename}.css")
 async def get_css(filename: str):
     """Serve static CSS files."""
-    path = f"{filename}.css"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, f"{filename}.css")
     if os.path.exists(path):
         return FileResponse(path)
     return JSONResponse(status_code=404, content={"error": "Not Found"})

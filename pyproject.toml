@@ -45,4 +45,4 @@ ignore = [
 ]
 
 [tool.setuptools]
-py-modules = ["hardware", "main", "models", "routes", "server"]
+packages = ["web"]
